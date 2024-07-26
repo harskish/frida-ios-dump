@@ -32,8 +32,8 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 
 DUMP_JS = os.path.join(script_dir, 'dump.js')
 
-User = 'root'
-Password = 'alpine'
+User = 'mobile'
+Password = None
 Host = 'localhost'
 Port = 2222
 KeyFileName = None
@@ -46,8 +46,8 @@ file_dict = {}
 finished = threading.Event()
 
 
-def get_usb_iphone():
-    Type = 'usb'
+def get_device(host=None):
+    Type = 'remote' if host is not None else 'usb'
     if int(frida.__version__.split('.')[0]) < 12:
         Type = 'tether'
     device_manager = frida.get_device_manager()
@@ -61,6 +61,8 @@ def get_usb_iphone():
     device = None
     while device is None:
         devices = [dev for dev in device_manager.enumerate_devices() if dev.type == Type]
+        if Host is not None:
+            devices = [d for d in devices if Host in d.name]
         if len(devices) == 0:
             print('Waiting for USB device...')
             changed.wait()
@@ -262,7 +264,6 @@ def open_target_app(device, name_or_bundleid):
             pid = application.pid
             display_name = application.name
             bundle_identifier = application.identifier
-    
     try:
         if pid == '' :
             pid = device.get_process(name_or_bundleid).pid
@@ -312,29 +313,59 @@ if __name__ == '__main__':
         parser.print_help()
         sys.exit(exit_code)
 
-    device = get_usb_iphone()
+    # update ssh args
+    if args.ssh_host:
+        Host = args.ssh_host
+    if args.ssh_port:
+        Port = int(args.ssh_port)
+    if args.ssh_user:
+        User = args.ssh_user
+    if args.ssh_password:
+        Password = args.ssh_password
+    if args.ssh_key_filename:
+        KeyFileName = args.ssh_key_filename
+
+    if Host != 'localhost':
+        ret = frida.get_device_manager().add_remote_device(f"{Host}")
+        print('Host addition:', ret)
+    else:
+        print('Host unchaged!\n')
+
+    device = get_device(host=Host)
+    print('Got device')
 
     if args.list_applications:
         list_applications(device)
     else:
         name_or_bundleid = args.target
         output_ipa = args.output_ipa
-        # update ssh args
-        if args.ssh_host:
-            Host = args.ssh_host
-        if args.ssh_port:
-            Port = int(args.ssh_port)
-        if args.ssh_user:
-            User = args.ssh_user
-        if args.ssh_password:
-            Password = args.ssh_password
-        if args.ssh_key_filename:
-            KeyFileName = args.ssh_key_filename
 
         try:
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(Host, port=Port, username=User, password=Password, key_filename=KeyFileName)
+            #args = { 'port': Port, 'username': User, 'password': Password, 'key_filename': KeyFileName }
+            #args = {k:v for k,v in args.items() if v is not None}
+            #ssh.connect(Host, **args)
+
+            # Use local OpenSSH config
+            ssh_config = paramiko.SSHConfig()
+            user_config_file = os.path.expanduser("~/.ssh/config")
+            if os.path.exists(user_config_file):
+                with open(user_config_file) as f:
+                    ssh_config.parse(f)
+                    print('Using ~/.ssh/config')
+
+            cfg = {'hostname': Host, 'username': User}
+
+            user_config = ssh_config.lookup(cfg['hostname'])
+            for k in ('hostname', 'username', 'port'):
+                if k in user_config:
+                    cfg[k] = user_config[k]
+
+            if 'proxycommand' in user_config:
+                cfg['sock'] = paramiko.ProxyCommand(user_config['proxycommand'])
+
+            ssh.connect(**cfg)
 
             create_dir(PAYLOAD_PATH)
             (session, display_name, bundle_identifier) = open_target_app(device, name_or_bundleid)
