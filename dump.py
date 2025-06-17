@@ -350,10 +350,13 @@ if __name__ == '__main__':
             # Use local OpenSSH config
             ssh_config = paramiko.SSHConfig()
             user_config_file = os.path.expanduser("~/.ssh/config")
+            #user_config_file = os.path.expanduser("/etc/ssh/ssh_config.d/100-nix-darwin.conf")
             if os.path.exists(user_config_file):
                 with open(user_config_file) as f:
                     ssh_config.parse(f)
-                    print('Using ~/.ssh/config')
+                    print(f'Using {user_config_file}')
+            else:
+                print(f'Could not find ssh config: {user_config_file}')
 
             cfg = {'hostname': Host, 'username': User}
 

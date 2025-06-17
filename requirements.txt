@@ -4,7 +4,8 @@ cffi
 colorama
 cryptography
 enum34
-frida-tools
+frida==16.4.3
+frida-tools==13.7.1
 idna
 ipaddress
 paramiko
